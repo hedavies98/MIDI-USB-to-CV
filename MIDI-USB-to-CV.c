@@ -4,17 +4,22 @@
 #include "tusb.h"
 #include "usb_midi_host.h"
 
-// 125,000,000 / 127 / 30 = 32kHz
+// 125MHz/ 127 / 30 = 32kHz PWM
 const uint WRAP_VAL = 127;
 const float CKL_DIV = 30.0f;
 
+// Raspberry Pi Pico GPIO pins
+// NOTE_PIN and VELOCITY_PIN are used for PWM output
+// GATE_PIN is used to control the gate signal
+// TRIGGER_PIN outputs a momentary signal when a note is played
 const uint8_t NOTE_PIN = 27;
 const uint8_t VELOCITY_PIN = 26;
 const uint8_t GATE_PIN = 22;
 const uint8_t TRIGGER_PIN = 21;
 
-static uint8_t midi_dev_addr = 0;
+static uint8_t midi_device_address = 0;
 
+// PWM slice number and channel for note and velocity
 uint slicenum;
 uint note_channel;
 uint velocity_channel;
@@ -22,6 +27,7 @@ uint velocity_channel;
 bool should_trigger = false;
 uint wrap_count = 0;
 
+// Function prototypes
 void on_pwm_wrap();
 void note_on(uint8_t note, uint8_t velocity);
 void note_off();
@@ -30,11 +36,10 @@ void init_pins();
 
 int main()
 {
+  // Initialize the board and peripherals
   stdio_init_all();
-
   board_init();
   tusb_init();
-
   init_pins();
   init_pwm();
 
@@ -44,6 +49,7 @@ int main()
   }
 }
 
+// Initialise GPIO pins for digital output
 void init_pins()
 {
   gpio_init(GATE_PIN);
@@ -52,6 +58,7 @@ void init_pins()
   gpio_set_dir(TRIGGER_PIN, GPIO_OUT);
 }
 
+// Initialise GPIO pins for PWM output
 void init_pwm()
 {
   gpio_set_function(NOTE_PIN, GPIO_FUNC_PWM);
@@ -76,6 +83,8 @@ void init_pwm()
 }
 
 // TODO: replace trigger code with timer rather than using PWM IRQ
+// When a note is first played, we want to trigger a momentary signal
+// this is done by setting the TRIGGER_PIN high for 3000 cycles
 void on_pwm_wrap()
 {
   pwm_clear_irq(slicenum);
@@ -117,15 +126,15 @@ void note_off()
 // can be used to parse common/simple enough descriptor.
 // Note: if report descriptor length > CFG_TUH_ENUMERATION_BUFSIZE, it will be skipped
 // therefore report_desc = NULL, desc_len = 0
-void tuh_midi_mount_cb(uint8_t dev_addr, uint8_t in_ep, uint8_t out_ep, uint8_t num_cables_rx, uint16_t num_cables_tx)
+void tuh_midi_mount_cb(uint8_t device_addr, uint8_t in_ep, uint8_t out_ep, uint8_t num_cables_rx, uint16_t num_cables_tx)
 {
   printf("MIDI device address = %u, IN endpoint %u has %u cables, OUT endpoint %u has %u cables\r\n",
-         dev_addr, in_ep & 0xf, num_cables_rx, out_ep & 0xf, num_cables_tx);
+         device_addr, in_ep & 0xf, num_cables_rx, out_ep & 0xf, num_cables_tx);
 
-  if (midi_dev_addr == 0)
+  if (midi_device_address == 0)
   {
     // then no MIDI device is currently connected
-    midi_dev_addr = dev_addr;
+    midi_device_address = device_addr;
   }
   else
   {
@@ -134,22 +143,22 @@ void tuh_midi_mount_cb(uint8_t dev_addr, uint8_t in_ep, uint8_t out_ep, uint8_t 
 }
 
 // Invoked when device with hid interface is un-mounted
-void tuh_midi_umount_cb(uint8_t dev_addr, uint8_t instance)
+void tuh_midi_umount_cb(uint8_t device_addr, uint8_t instance)
 {
-  if (dev_addr == midi_dev_addr)
+  if (device_addr == midi_device_address)
   {
-    midi_dev_addr = 0;
-    printf("MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr, instance);
+    midi_device_address = 0;
+    printf("MIDI device address = %d, instance = %d is unmounted\r\n", device_addr, instance);
   }
   else
   {
-    printf("Unused MIDI device address = %d, instance = %d is unmounted\r\n", dev_addr, instance);
+    printf("Unused MIDI device address = %d, instance = %d is unmounted\r\n", device_addr, instance);
   }
 }
 
 void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
 {
-  if (midi_dev_addr == dev_addr)
+  if (midi_device_address == dev_addr)
   {
     if (num_packets != 0)
     {
@@ -199,7 +208,7 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
   }
 }
 
-void tuh_midi_tx_cb(uint8_t dev_addr)
+void tuh_midi_tx_cb(uint8_t device_address)
 {
-  (void)dev_addr;
+  (void)device_address;
 }
