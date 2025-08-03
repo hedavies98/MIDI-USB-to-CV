@@ -1,16 +1,8 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-
 #include "pico/stdlib.h"
-#include "hardware/timer.h"
 #include "hardware/pwm.h"
-#include "pico/binary_info.h"
 #include "bsp/board_api.h"
 #include "tusb.h"
 #include "usb_midi_host.h"
-
-#include "hardware/irq.h"
 
 // 125,000,000 / 127 / 30 = 32kHz
 const uint WRAP_VAL = 127;

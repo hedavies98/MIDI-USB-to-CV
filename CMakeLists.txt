@@ -55,8 +55,6 @@ target_include_directories(MIDI-USB-to-CV PRIVATE
 
 # Add any user requested libraries
 target_link_libraries(MIDI-USB-to-CV 
-        hardware_timer
-        hardware_clocks
         hardware_pwm
         tinyusb_host 
         tinyusb_board 
