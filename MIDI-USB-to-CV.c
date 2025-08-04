@@ -24,15 +24,12 @@ uint slicenum;
 uint note_channel;
 uint velocity_channel;
 
-bool should_trigger = false;
-uint wrap_count = 0;
-
 // Function prototypes
-void on_pwm_wrap();
 void note_on(uint8_t note, uint8_t velocity);
 void note_off();
 void init_pwm();
 void init_pins();
+int64_t trigger_callback(alarm_id_t id, __unused void *user_data);
 
 int main()
 {
@@ -68,13 +65,6 @@ void init_pwm()
   note_channel = pwm_gpio_to_channel(NOTE_PIN);
   velocity_channel = pwm_gpio_to_channel(VELOCITY_PIN);
 
-  // register the interrupt handler for the PWM slice
-  // interrupt fires when one PWM cycle is completed
-  pwm_clear_irq(slicenum);
-  pwm_set_irq_enabled(slicenum, true);
-  irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap);
-  irq_set_enabled(PWM_IRQ_WRAP, true);
-
   // set top register and clock division
   pwm_set_wrap(slicenum, WRAP_VAL);
   pwm_set_clkdiv(slicenum, CKL_DIV);
@@ -82,30 +72,19 @@ void init_pwm()
   pwm_set_mask_enabled(1u << slicenum);
 }
 
-// TODO: replace trigger code with timer rather than using PWM IRQ
-// When a note is first played, we want to trigger a momentary signal
-// this is done by setting the TRIGGER_PIN high for 3000 cycles
-void on_pwm_wrap()
-{
-  pwm_clear_irq(slicenum);
 
-  if (should_trigger)
-  {
-    gpio_put(TRIGGER_PIN, true);
-    wrap_count++;
-    if (wrap_count > 3000)
-    {
-      wrap_count = 0;
-      should_trigger = false;
-      gpio_put(TRIGGER_PIN, false);
-    }
-  }
+int64_t trigger_callback(alarm_id_t id, __unused void *user_data)
+{
+  gpio_put(TRIGGER_PIN, false);
+  return 0;
 }
+
 
 void note_on(uint8_t note, uint8_t velocity)
 {
   gpio_put(GATE_PIN, true);
-  should_trigger = true;
+  gpio_put(TRIGGER_PIN, true);
+  add_alarm_in_ms(50, trigger_callback, NULL, false);
   pwm_set_chan_level(slicenum, note_channel, note);
   pwm_set_chan_level(slicenum, velocity_channel, velocity);
 }
