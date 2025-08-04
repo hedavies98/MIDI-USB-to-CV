@@ -24,9 +24,11 @@ uint slicenum;
 uint note_channel;
 uint velocity_channel;
 
+uint8_t current_note = 0;
+
 // Function prototypes
 void note_on(uint8_t note, uint8_t velocity);
-void note_off();
+void note_off(uint8_t note);
 void init_pwm();
 void init_pins();
 int64_t trigger_callback(alarm_id_t id, __unused void *user_data);
@@ -85,15 +87,19 @@ void note_on(uint8_t note, uint8_t velocity)
   gpio_put(GATE_PIN, true);
   gpio_put(TRIGGER_PIN, true);
   add_alarm_in_ms(50, trigger_callback, NULL, false);
+  current_note = note;
   pwm_set_chan_level(slicenum, note_channel, note);
   pwm_set_chan_level(slicenum, velocity_channel, velocity);
 }
 
-void note_off()
+void note_off(uint8_t note)
 {
-  gpio_put(GATE_PIN, false);
-  pwm_set_chan_level(slicenum, note_channel, 0);
-  pwm_set_chan_level(slicenum, velocity_channel, 0);
+  if (note == current_note)
+  {
+    gpio_put(GATE_PIN, false);
+    pwm_set_chan_level(slicenum, note_channel, 0);
+    pwm_set_chan_level(slicenum, velocity_channel, 0);
+  }
 }
 
 //--------------------------------------------------------------------+
@@ -157,7 +163,7 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
           note_on(buffer[1], buffer[2]);
           break;
         case 0x80: // note off (note number, velocity)
-          note_off();
+          note_off(buffer[1]);
           break;
         case 0xE0: // pitch wheel (LSB, MSB)
           break;
