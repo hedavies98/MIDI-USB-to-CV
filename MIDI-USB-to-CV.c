@@ -175,7 +175,9 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
           switch (buffer[1])
           {
           case 0x01: // modwheel MSB
+            break;
           case 0x07: // volume slider
+            break;
           case 0x40: // sustain pedal
             if(buffer[2] < 0x3F)
             {
@@ -187,10 +189,12 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
             } else {
               sustain_active = true;
             }
+            break;
           case 0x7B: // all notes off
             sustain_active = false;
             note_released = true;
             note_off(current_note);
+            break;
           default:
             break;
           }
