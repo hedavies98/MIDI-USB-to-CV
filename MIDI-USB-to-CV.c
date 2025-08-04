@@ -25,6 +25,8 @@ uint note_channel;
 uint velocity_channel;
 
 uint8_t current_note = 0;
+bool note_released = false;
+bool sustain_active = false;
 
 // Function prototypes
 void note_on(uint8_t note, uint8_t velocity);
@@ -84,6 +86,7 @@ int64_t trigger_callback(alarm_id_t id, __unused void *user_data)
 
 void note_on(uint8_t note, uint8_t velocity)
 {
+  note_released = false;
   gpio_put(GATE_PIN, true);
   gpio_put(TRIGGER_PIN, true);
   add_alarm_in_ms(50, trigger_callback, NULL, false);
@@ -94,7 +97,8 @@ void note_on(uint8_t note, uint8_t velocity)
 
 void note_off(uint8_t note)
 {
-  if (note == current_note)
+  note_released = true;
+  if (note == current_note && !sustain_active)
   {
     gpio_put(GATE_PIN, false);
     pwm_set_chan_level(slicenum, note_channel, 0);
@@ -173,6 +177,16 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
           case 0x01: // modwheel MSB
           case 0x07: // volume slider
           case 0x40: // sustain pedal
+            if(buffer[2] < 0x3F)
+            {
+              sustain_active = false;
+              if(note_released)
+              {
+                note_off(current_note);
+              }
+            } else {
+              sustain_active = true;
+            }
           case 0x7B: // all notes off
           default:
             break;
