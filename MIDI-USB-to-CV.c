@@ -188,6 +188,9 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
               sustain_active = true;
             }
           case 0x7B: // all notes off
+            sustain_active = false;
+            note_released = true;
+            note_off(current_note);
           default:
             break;
           }
