@@ -3,6 +3,9 @@
 #include "bsp/board_api.h"
 #include "tusb.h"
 #include "usb_midi_host.h"
+#include "pico-ssd1306/ssd1306.h"
+#include "pico-ssd1306/textRenderer/TextRenderer.h"
+#include "hardware/i2c.h"
 
 // 125MHz/ 127 / 30 = 32kHz PWM
 const uint WRAP_VAL = 127;
@@ -28,12 +31,16 @@ uint8_t current_note = 0;
 bool note_released = false;
 bool sustain_active = false;
 
+
+
 // Function prototypes
 void note_on(uint8_t note, uint8_t velocity);
 void note_off(uint8_t note);
 void init_pwm();
 void init_pins();
 int64_t trigger_callback(alarm_id_t id, __unused void *user_data);
+
+pico_ssd1306::SSD1306 display(i2c0, 0x3C, pico_ssd1306::Size::W128xH64);
 
 int main()
 {
@@ -43,6 +50,10 @@ int main()
   tusb_init();
   init_pins();
   init_pwm();
+
+  display.init();
+  sleep_ms(250);
+  display.setOrientation(0);
 
   while (true)
   {
@@ -57,6 +68,14 @@ void init_pins()
   gpio_set_dir(GATE_PIN, GPIO_OUT);
   gpio_init(TRIGGER_PIN);
   gpio_set_dir(TRIGGER_PIN, GPIO_OUT);
+
+  // Init i2c0 controller
+  i2c_init(i2c0, 1000000);
+  // Set up pins 12 and 13
+  gpio_set_function(12, GPIO_FUNC_I2C);
+  gpio_set_function(13, GPIO_FUNC_I2C);
+  gpio_pull_up(12);
+  gpio_pull_up(13);
 }
 
 // Initialise GPIO pins for PWM output
@@ -76,7 +95,6 @@ void init_pwm()
   pwm_set_mask_enabled(1u << slicenum);
 }
 
-
 int64_t trigger_callback(alarm_id_t id, __unused void *user_data)
 {
   gpio_put(TRIGGER_PIN, false);
@@ -93,6 +111,18 @@ void note_on(uint8_t note, uint8_t velocity)
   current_note = note;
   pwm_set_chan_level(slicenum, note_channel, note);
   pwm_set_chan_level(slicenum, velocity_channel, velocity);
+
+  char note_string[10];
+  char velocity_string[10];
+  sprintf(note_string, "%03d", note);
+  sprintf(velocity_string, "%03d", velocity);
+
+  display.clear();
+  drawText(&display, font_12x16, "Note", 0 ,0);
+  drawText(&display, font_12x16, "Vel", 0 ,20);
+  drawText(&display, font_12x16, note_string, 50 ,0);
+  drawText(&display, font_12x16, velocity_string, 50 ,20);
+  display.sendBuffer();
 }
 
 void note_off(uint8_t note)
@@ -103,6 +133,9 @@ void note_off(uint8_t note)
     gpio_put(GATE_PIN, false);
     pwm_set_chan_level(slicenum, note_channel, 0);
     pwm_set_chan_level(slicenum, velocity_channel, 0);
+    display.clear();
+    drawText(&display, font_12x16, "Note Off", 0 ,20);
+    display.sendBuffer();
   }
 }
 

@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(MIDI-USB-to-CV MIDI-USB-to-CV.c)
+add_executable(MIDI-USB-to-CV MIDI-USB-to-CV.cpp)
 
 pico_set_program_name(MIDI-USB-to-CV "MIDI-USB-to-CV")
 pico_set_program_version(MIDI-USB-to-CV "0.1")
@@ -52,6 +52,7 @@ target_link_libraries(MIDI-USB-to-CV
 target_include_directories(MIDI-USB-to-CV PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
+add_subdirectory(pico-ssd1306)
 
 # Add any user requested libraries
 target_link_libraries(MIDI-USB-to-CV 
@@ -59,6 +60,8 @@ target_link_libraries(MIDI-USB-to-CV
         tinyusb_host 
         tinyusb_board 
         usb_midi_host_app_driver 
+        pico_ssd1306
+        hardware_i2c
         )
 
 add_library(usb_midi_host INTERFACE)
