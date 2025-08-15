@@ -66,19 +66,19 @@ target_link_libraries(MIDI-USB-to-CV
 
 add_library(usb_midi_host INTERFACE)
 target_sources(usb_midi_host INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/lib/usb_midi_host/usb_midi_host.c
+    ${CMAKE_CURRENT_LIST_DIR}/usb_midi_host/usb_midi_host.c
 )
 target_include_directories(usb_midi_host INTERFACE
- ${CMAKE_CURRENT_LIST_DIR}/lib/usb_midi_host
+ ${CMAKE_CURRENT_LIST_DIR}/usb_midi_host
 )
 target_link_libraries(usb_midi_host INTERFACE pico_stdlib tinyusb_host)
 
 add_library(usb_midi_host_app_driver INTERFACE)
 target_sources(usb_midi_host_app_driver INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/lib/usb_midi_host/usb_midi_host_app_driver.c
+    ${CMAKE_CURRENT_LIST_DIR}/usb_midi_host/usb_midi_host_app_driver.c
 )
 target_include_directories(usb_midi_host_app_driver INTERFACE
- ${CMAKE_CURRENT_LIST_DIR}/lib/usb_midi_host
+ ${CMAKE_CURRENT_LIST_DIR}/usb_midi_host
 )
 target_link_libraries(usb_midi_host_app_driver INTERFACE usb_midi_host)
 
