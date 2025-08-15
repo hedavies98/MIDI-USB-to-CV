@@ -1,3 +1,7 @@
 [submodule "usb_midi_host"]
 	path = usb_midi_host
 	url = https://github.com/rppicomidi/usb_midi_host
+
+[submodule "pico-ssd1306"]
+	path = pico-ssd1306
+	url = https://github.com/daschr/pico-ssd1306
