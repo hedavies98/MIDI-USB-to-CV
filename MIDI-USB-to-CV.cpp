@@ -150,17 +150,10 @@ void note_off(uint8_t note)
 // therefore report_desc = NULL, desc_len = 0
 void tuh_midi_mount_cb(uint8_t device_addr, uint8_t in_ep, uint8_t out_ep, uint8_t num_cables_rx, uint16_t num_cables_tx)
 {
-  printf("MIDI device address = %u, IN endpoint %u has %u cables, OUT endpoint %u has %u cables\r\n",
-         device_addr, in_ep & 0xf, num_cables_rx, out_ep & 0xf, num_cables_tx);
-
   if (midi_device_address == 0)
   {
     // then no MIDI device is currently connected
     midi_device_address = device_addr;
-  }
-  else
-  {
-    printf("A different USB MIDI Device is already connected.\r\nOnly one device at a time is supported in this program\r\nDevice is disabled\r\n");
   }
 }
 
@@ -170,11 +163,6 @@ void tuh_midi_umount_cb(uint8_t device_addr, uint8_t instance)
   if (device_addr == midi_device_address)
   {
     midi_device_address = 0;
-    printf("MIDI device address = %d, instance = %d is unmounted\r\n", device_addr, instance);
-  }
-  else
-  {
-    printf("Unused MIDI device address = %d, instance = %d is unmounted\r\n", device_addr, instance);
   }
 }
 
@@ -236,12 +224,12 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
           break;
         }
 
-        // print out messages for debug
-        for (uint32_t idx = 0; idx < bytes_read; idx++)
-        {
-          printf("%02x ", buffer[idx]);
-        }
-        printf("\r\n");
+        // // print out messages for debug
+        // for (uint32_t idx = 0; idx < bytes_read; idx++)
+        // {
+        //   printf("%02x ", buffer[idx]);
+        // }
+        // printf("\r\n");
       }
     }
   }
