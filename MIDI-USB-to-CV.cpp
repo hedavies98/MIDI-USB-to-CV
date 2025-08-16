@@ -27,20 +27,18 @@ uint slicenum;
 uint note_channel;
 uint velocity_channel;
 
+// Global variables to track state
 uint8_t current_note = 0;
-bool note_released = false;
+uint8_t current_velocity = 0;
 bool sustain_active = false;
 
-
-
 // Function prototypes
-void note_on(uint8_t note, uint8_t velocity);
-void note_off(uint8_t note);
 void init_pwm();
 void init_pins();
+void update_display(pico_ssd1306::SSD1306 &display);
+void update_outputs();
 int64_t trigger_callback(alarm_id_t id, __unused void *user_data);
 
-pico_ssd1306::SSD1306 display(i2c0, 0x3C, pico_ssd1306::Size::W128xH64);
 
 int main()
 {
@@ -50,14 +48,16 @@ int main()
   tusb_init();
   init_pins();
   init_pwm();
-
-  display.init();
+  
+  pico_ssd1306::SSD1306 display = pico_ssd1306::SSD1306(i2c0, 0x3C, pico_ssd1306::Size::W128xH64);
   sleep_ms(250);
   display.setOrientation(0);
-
+  
   while (true)
   {
     tuh_task();
+    update_display(display);
+    update_outputs();
   }
 }
 
@@ -101,41 +101,45 @@ int64_t trigger_callback(alarm_id_t id, __unused void *user_data)
   return 0;
 }
 
-
-void note_on(uint8_t note, uint8_t velocity)
+void update_display(pico_ssd1306::SSD1306 &display)
 {
-  note_released = false;
-  gpio_put(GATE_PIN, true);
-  gpio_put(TRIGGER_PIN, true);
-  add_alarm_in_ms(50, trigger_callback, NULL, false);
-  current_note = note;
-  pwm_set_chan_level(slicenum, note_channel, note);
-  pwm_set_chan_level(slicenum, velocity_channel, velocity);
-
-  char note_string[10];
-  char velocity_string[10];
-  sprintf(note_string, "%03d", note);
-  sprintf(velocity_string, "%03d", velocity);
-
   display.clear();
   drawText(&display, font_12x16, "Note", 0 ,0);
-  drawText(&display, font_12x16, "Vel", 0 ,20);
-  drawText(&display, font_12x16, note_string, 50 ,0);
-  drawText(&display, font_12x16, velocity_string, 50 ,20);
+  char note_string[10];
+  sprintf(note_string, "%03d", current_note);
+  drawText(&display, font_12x16, note_string, 50, 0);
+
+  drawText(&display, font_12x16, "Vel", 0, 20);
+  char velocity_string[10];
+  sprintf(velocity_string, "%03d", current_velocity);
+  drawText(&display, font_12x16, velocity_string, 50, 20);
+
+  if (sustain_active)
+  {
+    drawText(&display, font_12x16, "Sustain:ON", 0, 40);
+  } else {
+    drawText(&display, font_12x16, "Sustain:OFF", 0, 40);
+  }
+
   display.sendBuffer();
+
 }
 
-void note_off(uint8_t note)
+void update_outputs()
 {
-  note_released = true;
-  if (note == current_note && !sustain_active)
+  if(current_note > 0)
+  {
+    gpio_put(GATE_PIN, true);
+    // gpio_put(TRIGGER_PIN, true);
+    // add_alarm_in_ms(50, trigger_callback, NULL, false);
+    pwm_set_chan_level(slicenum, note_channel, current_note);
+    pwm_set_chan_level(slicenum, velocity_channel, current_velocity);
+  } 
+  else if (!sustain_active) 
   {
     gpio_put(GATE_PIN, false);
     pwm_set_chan_level(slicenum, note_channel, 0);
     pwm_set_chan_level(slicenum, velocity_channel, 0);
-    display.clear();
-    drawText(&display, font_12x16, "Note Off", 0 ,20);
-    display.sendBuffer();
   }
 }
 
@@ -185,10 +189,14 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
         switch (buffer[0])
         {
         case 0x90: // note on (note number, velocity)
-          note_on(buffer[1], buffer[2]);
+          current_note = buffer[1];
+          current_velocity = buffer[2];
           break;
         case 0x80: // note off (note number, velocity)
-          note_off(buffer[1]);
+          if (buffer[1] == current_note)
+          {
+            current_note = 0;
+          }
           break;
         case 0xE0: // pitch wheel (LSB, MSB)
           break;
@@ -203,18 +211,13 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
             if(buffer[2] < 0x3F)
             {
               sustain_active = false;
-              if(note_released)
-              {
-                note_off(current_note);
-              }
             } else {
               sustain_active = true;
             }
             break;
           case 0x7B: // all notes off
             sustain_active = false;
-            note_released = true;
-            note_off(current_note);
+            current_note = 0;
             break;
           default:
             break;
