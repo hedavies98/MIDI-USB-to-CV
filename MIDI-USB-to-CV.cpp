@@ -208,12 +208,7 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
           case 0x07: // volume slider
             break;
           case 0x40: // sustain pedal
-            if(buffer[2] < 0x3F)
-            {
-              sustain_active = false;
-            } else {
-              sustain_active = true;
-            }
+            sustain_active = buffer[2] < 0x3F ? false : true;
             break;
           case 0x7B: // all notes off
             sustain_active = false;
