@@ -6,6 +6,7 @@
 #include "pico-ssd1306/ssd1306.h"
 #include "pico-ssd1306/textRenderer/TextRenderer.h"
 #include "hardware/i2c.h"
+#include "hardware/adc.h"
 
 // 125MHz/ 127 / 30 = 32kHz PWM
 const uint WRAP_VAL = 127;
@@ -15,6 +16,7 @@ const float CKL_DIV = 30.0f;
 // NOTE_PIN and VELOCITY_PIN are used for PWM output
 // GATE_PIN is used to control the gate signal
 // TRIGGER_PIN outputs a momentary signal when a note is played
+const uint8_t BPM_PIN = 28;
 const uint8_t NOTE_PIN = 27;
 const uint8_t VELOCITY_PIN = 26;
 const uint8_t GATE_PIN = 22;
@@ -30,11 +32,14 @@ uint velocity_channel;
 // Global variables to track state
 uint8_t current_note = 0;
 uint8_t current_velocity = 0;
+uint16_t current_bpm = 0;
+uint16_t last_raw_value = 0;
 bool sustain_active = false;
 
 // Function prototypes
 void init_pwm();
 void init_pins();
+void poll_inputs();
 void update_display(pico_ssd1306::SSD1306 &display);
 void update_outputs();
 int64_t trigger_callback(alarm_id_t id, __unused void *user_data);
@@ -45,6 +50,7 @@ int main()
   // Initialize the board and peripherals
   stdio_init_all();
   board_init();
+  adc_init();
   tusb_init();
   init_pins();
   init_pwm();
@@ -56,6 +62,7 @@ int main()
   while (true)
   {
     tuh_task();
+    poll_inputs();
     update_display(display);
     update_outputs();
   }
@@ -68,6 +75,9 @@ void init_pins()
   gpio_set_dir(GATE_PIN, GPIO_OUT);
   gpio_init(TRIGGER_PIN);
   gpio_set_dir(TRIGGER_PIN, GPIO_OUT);
+
+  adc_gpio_init(BPM_PIN);
+  adc_select_input(BPM_PIN - ADC_BASE_PIN);
 
   // Init i2c0 controller
   i2c_init(i2c0, 1000000);
@@ -101,25 +111,52 @@ int64_t trigger_callback(alarm_id_t id, __unused void *user_data)
   return 0;
 }
 
+uint16_t map(uint16_t x, uint16_t in_min, uint16_t in_max, uint16_t out_min, uint16_t out_max) {
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void poll_inputs()
+{
+  uint16_t result = adc_read() >> 2;
+  if (result > last_raw_value + 6 ||
+      result < last_raw_value - 6) // only update if value has changed
+  {
+    last_raw_value = result;
+    current_bpm = map(result, 0, 1019, 30, 180);
+  }
+}
+
 void update_display(pico_ssd1306::SSD1306 &display)
 {
   display.clear();
-  drawText(&display, font_12x16, "Note", 0 ,0);
-  char note_string[10];
-  sprintf(note_string, "%03d", current_note);
-  drawText(&display, font_12x16, note_string, 50, 0);
+  // drawText(&display, font_12x16, "Note", 0 ,0);
+  // char note_string[10];
+  // sprintf(note_string, "%03d", current_note);
+  // drawText(&display, font_12x16, note_string, 50, 0);
 
-  drawText(&display, font_12x16, "Vel", 0, 20);
-  char velocity_string[10];
-  sprintf(velocity_string, "%03d", current_velocity);
-  drawText(&display, font_12x16, velocity_string, 50, 20);
+  // drawText(&display, font_12x16, "Vel", 0, 20);
+  // char velocity_string[10];
+  // sprintf(velocity_string, "%03d", current_velocity);
+  // drawText(&display, font_12x16, velocity_string, 50, 20);
 
-  if (sustain_active)
-  {
-    drawText(&display, font_12x16, "Sustain:ON", 0, 40);
-  } else {
-    drawText(&display, font_12x16, "Sustain:OFF", 0, 40);
-  }
+  // if (sustain_active)
+  // {
+  //   drawText(&display, font_12x16, "S:ON", 0, 40);
+  // } else {
+  //   drawText(&display, font_12x16, "S:OFF", 0, 40);
+  // }
+
+  char a_string[10];
+  sprintf(a_string, "%05d", last_raw_value);
+  drawText(&display, font_12x16, a_string, 0, 0);
+  
+  // char bpm_string[10];
+  // sprintf(bpm_string, "%04d", current_bpm);
+  // drawText(&display, font_12x16, bpm_string, 0, 20);
+
+  char bpm_string[10];
+  sprintf(bpm_string, "%04d", current_bpm);
+  drawText(&display, font_12x16, bpm_string, 0, 40);
 
   display.sendBuffer();
 

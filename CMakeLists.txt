@@ -62,6 +62,7 @@ target_link_libraries(MIDI-USB-to-CV
         usb_midi_host_app_driver 
         pico_ssd1306
         hardware_i2c
+        hardware_adc
         )
 
 add_library(usb_midi_host INTERFACE)
