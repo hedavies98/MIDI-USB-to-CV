@@ -7,33 +7,38 @@
 #include "pico-ssd1306/textRenderer/TextRenderer.h"
 #include "hardware/i2c.h"
 
+struct PWMConfig
+{
+  uint8_t pin;
+  uint8_t slice_num;
+  uint8_t channel;
+};
+
+
 // 125MHz/ 127 / 30 = 32kHz PWM
 const uint WRAP_VAL = 127;
 const float CKL_DIV = 30.0f;
 
 // Raspberry Pi Pico GPIO pins
-// NOTE_PIN and VELOCITY_PIN are used for PWM output
 // GATE_PIN is used to control the gate signal
 // TRIGGER_PIN outputs a momentary signal when a note is played
-const uint8_t NOTE_PIN = 27;
-const uint8_t VELOCITY_PIN = 26;
 const uint8_t GATE_PIN = 22;
 const uint8_t TRIGGER_PIN = 21;
 
-static uint8_t midi_device_address = 0;
+PWMConfig note_pwm = {27, 0, 0};
+PWMConfig velocity_pwm = {26, 0, 0};
+PWMConfig modulation_pwm = {22, 0, 0};
 
-// PWM slice number and channel for note and velocity
-uint slicenum;
-uint note_channel;
-uint velocity_channel;
+static uint8_t midi_device_address = 0;
 
 // Global variables to track state
 uint8_t current_note = 0;
 uint8_t current_velocity = 0;
+uint8_t modulation_level = 0;
 bool sustain_active = false;
 
 // Function prototypes
-void init_pwm();
+void init_pwm(PWMConfig &pwm_config);
 void init_pins();
 void update_display(pico_ssd1306::SSD1306 &display);
 void update_outputs();
@@ -47,7 +52,9 @@ int main()
   board_init();
   tusb_init();
   init_pins();
-  init_pwm();
+  init_pwm(note_pwm);
+  init_pwm(velocity_pwm);
+  init_pwm(modulation_pwm);
   
   pico_ssd1306::SSD1306 display = pico_ssd1306::SSD1306(i2c0, 0x3C, pico_ssd1306::Size::W128xH64);
   sleep_ms(250);
@@ -79,20 +86,17 @@ void init_pins()
 }
 
 // Initialise GPIO pins for PWM output
-void init_pwm()
+void init_pwm(PWMConfig &pwm_config)
 {
-  gpio_set_function(NOTE_PIN, GPIO_FUNC_PWM);
-  gpio_set_function(VELOCITY_PIN, GPIO_FUNC_PWM);
-
-  slicenum = pwm_gpio_to_slice_num(NOTE_PIN);
-  note_channel = pwm_gpio_to_channel(NOTE_PIN);
-  velocity_channel = pwm_gpio_to_channel(VELOCITY_PIN);
+  gpio_set_function(pwm_config.pin, GPIO_FUNC_PWM);
+  pwm_config.slice_num = pwm_gpio_to_slice_num(pwm_config.pin);
+  pwm_config.channel = pwm_gpio_to_channel(pwm_config.pin);
 
   // set top register and clock division
-  pwm_set_wrap(slicenum, WRAP_VAL);
-  pwm_set_clkdiv(slicenum, CKL_DIV);
-
-  pwm_set_mask_enabled(1u << slicenum);
+  pwm_set_wrap(pwm_config.slice_num, WRAP_VAL);
+  pwm_set_clkdiv(pwm_config.slice_num, CKL_DIV);
+  
+  pwm_set_enabled(pwm_config.slice_num, true);
 }
 
 int64_t trigger_callback(alarm_id_t id, __unused void *user_data)
@@ -132,15 +136,16 @@ void update_outputs()
     gpio_put(GATE_PIN, true);
     // gpio_put(TRIGGER_PIN, true);
     // add_alarm_in_ms(50, trigger_callback, NULL, false);
-    pwm_set_chan_level(slicenum, note_channel, current_note);
-    pwm_set_chan_level(slicenum, velocity_channel, current_velocity);
+    pwm_set_chan_level(note_pwm.slice_num, note_pwm.channel, current_note);
+    pwm_set_chan_level(velocity_pwm.slice_num, velocity_pwm.channel, current_velocity);
   } 
   else if (!sustain_active) 
   {
     gpio_put(GATE_PIN, false);
-    pwm_set_chan_level(slicenum, note_channel, 0);
-    pwm_set_chan_level(slicenum, velocity_channel, 0);
+    pwm_set_chan_level(note_pwm.slice_num, note_pwm.channel, 0);
+    pwm_set_chan_level(velocity_pwm.slice_num, velocity_pwm.channel, 0);
   }
+  pwm_set_chan_level(modulation_pwm.slice_num, modulation_pwm.channel, modulation_level);
 }
 
 //--------------------------------------------------------------------+
@@ -204,6 +209,7 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
           switch (buffer[1])
           {
           case 0x01: // modwheel MSB
+            modulation_level = buffer[2];
             break;
           case 0x07: // volume slider
             break;
