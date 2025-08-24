@@ -7,6 +7,8 @@
 #include "pico-ssd1306/textRenderer/TextRenderer.h"
 #include "hardware/i2c.h"
 #include "hardware/adc.h"
+#include <vector>
+#include<algorithm>
 
 struct PWMConfig
 {
@@ -28,7 +30,8 @@ const uint DISPLAY_UPDATE_INTERVAL_MS = 200;
 // ARPEGGIATOR_PIN reads the state of a button to toggle arpeggiator mode
 // BPM_PIN reads a potentiometer to set the BPM
 const uint8_t BPM_PIN = 28;
-const uint8_t ARPEGGIATOR_PIN = 6;
+const uint8_t ARPEGGIATOR_UP_PIN = 6;
+const uint8_t ARPEGGIATOR_DOWN_PIN = 5;
 const uint8_t GATE_PIN = 22;
 
 PWMConfig note_pwm = {27, 0, 0};
@@ -41,11 +44,14 @@ static uint8_t midi_device_address = 0;
 struct
 {
   uint8_t current_note = 0;
+  std::vector<uint8_t> held_notes;
   uint8_t current_velocity = 0;
   uint8_t modulation_level = 0;
-  uint8_t current_bpm = 0;
+  uint8_t current_bpm = 120;
+  uint8_t arp_note_index = 0;
   bool sustain_active = false;
   bool arpeggiator_active = false;
+  bool arpeggiator_direction = true; // true = up, false = down
 } program_state;
 
 uint16_t adc_samples[MAX_ADC_SAMPLES];
@@ -57,6 +63,7 @@ void init_pins();
 void poll_inputs();
 void update_display(pico_ssd1306::SSD1306 &display);
 void update_outputs();
+void update_arppegiator();
 
 int main()
 {
@@ -76,6 +83,7 @@ int main()
   
   uint32_t display_update_time = 0;
   uint32_t input_update_time = 0;
+  uint32_t arpeggiator_update_time = 0;
 
   while (true)
   {
@@ -93,6 +101,12 @@ int main()
       update_display(display);
       display_update_time = to_ms_since_boot(get_absolute_time()) + DISPLAY_UPDATE_INTERVAL_MS;
     }
+
+    if (to_ms_since_boot(get_absolute_time()) >= arpeggiator_update_time && program_state.arpeggiator_active)
+    {
+      update_arppegiator();
+      arpeggiator_update_time = to_ms_since_boot(get_absolute_time()) + (60000 / program_state.current_bpm);
+    }
   }
 }
 
@@ -102,8 +116,10 @@ void init_pins()
   gpio_init(GATE_PIN);
   gpio_set_dir(GATE_PIN, GPIO_OUT);
 
-  gpio_init(ARPEGGIATOR_PIN);
-  gpio_set_dir(ARPEGGIATOR_PIN, GPIO_IN);
+  gpio_init(ARPEGGIATOR_UP_PIN);
+  gpio_set_dir(ARPEGGIATOR_UP_PIN, GPIO_IN);
+  gpio_init(ARPEGGIATOR_DOWN_PIN);
+  gpio_set_dir(ARPEGGIATOR_DOWN_PIN, GPIO_IN);
 
   adc_gpio_init(BPM_PIN);
   adc_select_input(BPM_PIN - ADC_BASE_PIN);
@@ -150,22 +166,37 @@ void poll_inputs()
     program_state.current_bpm = map(adc_average >> 4, 0, 256-2, 30, 180);
   }
 
-  program_state.arpeggiator_active = gpio_get(ARPEGGIATOR_PIN);
+  if (gpio_get(ARPEGGIATOR_UP_PIN)) {
+    program_state.arpeggiator_direction = true;
+    program_state.arpeggiator_active = true;
+  } else if (gpio_get(ARPEGGIATOR_DOWN_PIN)) {
+    program_state.arpeggiator_direction = false;
+    program_state.arpeggiator_active = true;
+  } else {
+    program_state.arpeggiator_active = false;
+    program_state.arp_note_index = 0;
+  }
 }
 
 void update_display(pico_ssd1306::SSD1306 &display)
 {
   display.clear();
   
+  drawText(&display, font_5x8, "ARP", 0, 64-8);
   if (program_state.arpeggiator_active)
   {
-    drawChar(&display, font_12x16, 'A', 0, 64-16);
+    if (program_state.arpeggiator_direction) {
+      drawText(&display, font_5x8, "UP", 20, 64-8);
+    } else {
+      drawText(&display, font_5x8, "DOWN", 20, 64-8);
+    }
+  } else {
+    drawText(&display, font_5x8, "OFF", 20, 64-8);
   }
 
   char bpm_string[1];
   sprintf(bpm_string, "%03d", program_state.current_bpm);
   drawText(&display, font_16x32, bpm_string, 40, 20);
-
   display.sendBuffer();
 }
 
@@ -184,6 +215,20 @@ void update_outputs()
     pwm_set_chan_level(velocity_pwm.slice_num, velocity_pwm.channel, 0);
   }
   pwm_set_chan_level(modulation_pwm.slice_num, modulation_pwm.channel, program_state.modulation_level);
+}
+
+void update_arppegiator()
+{
+  if (program_state.held_notes.size() != 0) {
+    program_state.current_note = program_state.held_notes[program_state.arp_note_index];
+    if (program_state.arp_note_index < program_state.held_notes.size() - 1) {
+      program_state.arp_note_index++;
+    } else {
+      program_state.arp_note_index = 0;
+    }
+  } else {
+    program_state.current_note = 0;
+  }
 }
 
 //--------------------------------------------------------------------+
@@ -234,12 +279,26 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
         case 0x90: // note on (note number, velocity)
           program_state.current_note = buffer[1];
           program_state.current_velocity = buffer[2];
+          program_state.held_notes.push_back(buffer[1]);
+          if (program_state.arpeggiator_direction) {
+            std::sort(program_state.held_notes.begin(), program_state.held_notes.end());
+          } else {
+            std::sort(program_state.held_notes.begin(), program_state.held_notes.end(), std::greater<uint8_t>());
+          }
           break;
         case 0x80: // note off (note number, velocity)
           if (buffer[1] == program_state.current_note)
           {
             program_state.current_note = 0;
           }
+
+          for (auto it = program_state.held_notes.begin(); it != program_state.held_notes.end(); ++it) {
+            if (*it == buffer[1]) {
+              program_state.held_notes.erase(it);
+              break;
+            }
+          }
+          
           break;
         case 0xE0: // pitch wheel (LSB, MSB)
           break;
