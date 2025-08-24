@@ -15,20 +15,21 @@ struct PWMConfig
   uint8_t channel;
 };
 
-
 // 125MHz/ 127 / 30 = 32kHz PWM
 const uint WRAP_VAL = 127;
 const float CKL_DIV = 30.0f;
 
 const uint8_t MAX_ADC_SAMPLES = 4; 
+const uint INPUT_POLL_INTERVAL_MS = 50;
+const uint DISPLAY_UPDATE_INTERVAL_MS = 200;
 
 // Raspberry Pi Pico GPIO pins
-// GATE_PIN is used to control the gate signal
-// TRIGGER_PIN outputs a momentary signal when a note is played
+// GATE_PIN outputs high when a note is being played
+// ARPEGGIATOR_PIN reads the state of a button to toggle arpeggiator mode
+// BPM_PIN reads a potentiometer to set the BPM
 const uint8_t BPM_PIN = 28;
-const uint8_t GATE_PIN = 22;
-const uint8_t TRIGGER_PIN = 21;
 const uint8_t ARPEGGIATOR_PIN = 6;
+const uint8_t GATE_PIN = 22;
 
 PWMConfig note_pwm = {27, 0, 0};
 PWMConfig velocity_pwm = {26, 0, 0};
@@ -43,10 +44,10 @@ uint8_t modulation_level = 0;
 uint8_t current_bpm = 0;
 uint16_t adc_samples[MAX_ADC_SAMPLES];
 uint8_t adc_sample_index = 0;
-
 bool sustain_active = false;
 bool arpeggiator_active = false;
-bool slow_update = false;
+uint32_t display_update_time = 0;
+uint32_t input_update_time = 0;
 
 // Function prototypes
 void init_pwm(PWMConfig &pwm_config);
@@ -55,11 +56,6 @@ void poll_inputs();
 void update_display(pico_ssd1306::SSD1306 &display);
 void update_outputs();
 
-bool slow_update_callback(__unused struct repeating_timer *t)
-{
-  slow_update = true;
-  return true; // keep repeating
-}
 
 int main()
 {
@@ -76,20 +72,22 @@ int main()
   pico_ssd1306::SSD1306 display = pico_ssd1306::SSD1306(i2c0, 0x3C, pico_ssd1306::Size::W128xH64);
   sleep_ms(250);
   display.setOrientation(0);
-  
-  struct repeating_timer timer;
-  add_repeating_timer_ms(50, slow_update_callback, NULL, &timer);
 
   while (true)
   {
     tuh_task();
     update_outputs();
     
-    if (slow_update)
+    if (to_ms_since_boot(get_absolute_time()) >= input_update_time)
     {
       poll_inputs();
+      input_update_time = to_ms_since_boot(get_absolute_time()) + INPUT_POLL_INTERVAL_MS; 
+    }
+
+    if (to_ms_since_boot(get_absolute_time()) >= display_update_time)
+    {
       update_display(display);
-      slow_update = false;
+      display_update_time = to_ms_since_boot(get_absolute_time()) + DISPLAY_UPDATE_INTERVAL_MS;
     }
   }
 }
@@ -99,8 +97,6 @@ void init_pins()
 {
   gpio_init(GATE_PIN);
   gpio_set_dir(GATE_PIN, GPIO_OUT);
-  gpio_init(TRIGGER_PIN);
-  gpio_set_dir(TRIGGER_PIN, GPIO_OUT);
 
   gpio_init(ARPEGGIATOR_PIN);
   gpio_set_dir(ARPEGGIATOR_PIN, GPIO_IN);
@@ -131,12 +127,6 @@ void init_pwm(PWMConfig &pwm_config)
   pwm_set_enabled(pwm_config.slice_num, true);
 }
 
-int64_t trigger_callback(alarm_id_t id, __unused void *user_data)
-{
-  gpio_put(TRIGGER_PIN, false);
-  return 0;
-}
-
 uint16_t map(uint16_t x, uint16_t in_min, uint16_t in_max, uint16_t out_min, uint16_t out_max) {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
@@ -165,15 +155,14 @@ void update_display(pico_ssd1306::SSD1306 &display)
   
   if (arpeggiator_active)
   {
-    drawText(&display, font_12x16, "A", 0, 64-16);
+    drawChar(&display, font_12x16, 'A', 0, 64-16);
   }
 
-  char bpm_string[10];
+  char bpm_string[1];
   sprintf(bpm_string, "%03d", current_bpm);
   drawText(&display, font_16x32, bpm_string, 40, 20);
 
   display.sendBuffer();
-
 }
 
 void update_outputs()
@@ -181,8 +170,6 @@ void update_outputs()
   if(current_note > 0)
   {
     gpio_put(GATE_PIN, true);
-    // gpio_put(TRIGGER_PIN, true);
-    // add_alarm_in_ms(50, trigger_callback, NULL, false);
     pwm_set_chan_level(note_pwm.slice_num, note_pwm.channel, current_note);
     pwm_set_chan_level(velocity_pwm.slice_num, velocity_pwm.channel, current_velocity);
   } 
