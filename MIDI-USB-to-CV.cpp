@@ -20,6 +20,8 @@ struct PWMConfig
 const uint WRAP_VAL = 127;
 const float CKL_DIV = 30.0f;
 
+const uint8_t MAX_ADC_SAMPLES = 4; 
+
 // Raspberry Pi Pico GPIO pins
 // GATE_PIN is used to control the gate signal
 // TRIGGER_PIN outputs a momentary signal when a note is played
@@ -38,10 +40,13 @@ static uint8_t midi_device_address = 0;
 uint8_t current_note = 0;
 uint8_t current_velocity = 0;
 uint8_t modulation_level = 0;
-uint16_t current_bpm = 0;
-uint16_t last_raw_value = 0;
+uint8_t current_bpm = 0;
+uint16_t adc_samples[MAX_ADC_SAMPLES];
+uint8_t adc_sample_index = 0;
+
 bool sustain_active = false;
 bool arpeggiator_active = false;
+bool slow_update = false;
 
 // Function prototypes
 void init_pwm(PWMConfig &pwm_config);
@@ -49,8 +54,12 @@ void init_pins();
 void poll_inputs();
 void update_display(pico_ssd1306::SSD1306 &display);
 void update_outputs();
-int64_t trigger_callback(alarm_id_t id, __unused void *user_data);
 
+bool slow_update_callback(__unused struct repeating_timer *t)
+{
+  slow_update = true;
+  return true; // keep repeating
+}
 
 int main()
 {
@@ -68,12 +77,20 @@ int main()
   sleep_ms(250);
   display.setOrientation(0);
   
+  struct repeating_timer timer;
+  add_repeating_timer_ms(50, slow_update_callback, NULL, &timer);
+
   while (true)
   {
     tuh_task();
-    poll_inputs();
-    update_display(display);
     update_outputs();
+    
+    if (slow_update)
+    {
+      poll_inputs();
+      update_display(display);
+      slow_update = false;
+    }
   }
 }
 
@@ -126,34 +143,34 @@ uint16_t map(uint16_t x, uint16_t in_min, uint16_t in_max, uint16_t out_min, uin
 
 void poll_inputs()
 {
-  uint16_t result = adc_read() >> 2;
-  if (result > last_raw_value + 6 ||
-      result < last_raw_value - 6) // only update if value has changed
-  {
-    last_raw_value = result;
-    current_bpm = map(result, 0, 1019, 30, 180);
+  adc_samples[adc_sample_index] = adc_read();
+  if (adc_sample_index < MAX_ADC_SAMPLES - 1) {
+    adc_sample_index++;
+  } else {
+    adc_sample_index = 0;
+    uint16_t adc_average = 0;
+    for (uint8_t i = 0; i < MAX_ADC_SAMPLES; i++) {
+      adc_average += adc_samples[i];
+    }
+    adc_average /= MAX_ADC_SAMPLES / 2;
+    current_bpm = map(adc_average, 0, 8192-10, 30, 180);
   }
+
   arpeggiator_active = gpio_get(ARPEGGIATOR_PIN);
 }
 
 void update_display(pico_ssd1306::SSD1306 &display)
 {
   display.clear();
-  drawText(&display, font_12x16, "Note", 0 ,0);
-  char note_string[10];
-  sprintf(note_string, "%03d", current_note);
-  drawText(&display, font_12x16, note_string, 50, 0);
-
+  
   if (arpeggiator_active)
   {
-    drawText(&display, font_12x16, "A:ON", 0, 40);
-  } else {
-    drawText(&display, font_12x16, "A:OFF", 0, 40);
+    drawText(&display, font_12x16, "A", 0, 64-16);
   }
 
   char bpm_string[10];
-  sprintf(bpm_string, "%04d", current_bpm);
-  drawText(&display, font_12x16, bpm_string, 0, 20);
+  sprintf(bpm_string, "%03d", current_bpm);
+  drawText(&display, font_16x32, bpm_string, 40, 20);
 
   display.sendBuffer();
 
