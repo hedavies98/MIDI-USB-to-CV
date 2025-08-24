@@ -142,8 +142,8 @@ void poll_inputs()
     for (uint8_t i = 0; i < MAX_ADC_SAMPLES; i++) {
       adc_average += adc_samples[i];
     }
-    adc_average /= MAX_ADC_SAMPLES / 2;
-    current_bpm = map(adc_average, 0, 8192-10, 30, 180);
+    adc_average /= MAX_ADC_SAMPLES;
+    current_bpm = map(adc_average >> 4, 0, 256-2, 30, 180);
   }
 
   arpeggiator_active = gpio_get(ARPEGGIATOR_PIN);
