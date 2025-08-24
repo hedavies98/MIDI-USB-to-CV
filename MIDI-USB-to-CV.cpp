@@ -37,17 +37,19 @@ PWMConfig modulation_pwm = {22, 0, 0};
 
 static uint8_t midi_device_address = 0;
 
-// Global variables to track state
-uint8_t current_note = 0;
-uint8_t current_velocity = 0;
-uint8_t modulation_level = 0;
-uint8_t current_bpm = 0;
+// Global state variable
+struct
+{
+  uint8_t current_note = 0;
+  uint8_t current_velocity = 0;
+  uint8_t modulation_level = 0;
+  uint8_t current_bpm = 0;
+  bool sustain_active = false;
+  bool arpeggiator_active = false;
+} program_state;
+
 uint16_t adc_samples[MAX_ADC_SAMPLES];
 uint8_t adc_sample_index = 0;
-bool sustain_active = false;
-bool arpeggiator_active = false;
-uint32_t display_update_time = 0;
-uint32_t input_update_time = 0;
 
 // Function prototypes
 void init_pwm(PWMConfig &pwm_config);
@@ -55,7 +57,6 @@ void init_pins();
 void poll_inputs();
 void update_display(pico_ssd1306::SSD1306 &display);
 void update_outputs();
-
 
 int main()
 {
@@ -72,6 +73,9 @@ int main()
   pico_ssd1306::SSD1306 display = pico_ssd1306::SSD1306(i2c0, 0x3C, pico_ssd1306::Size::W128xH64);
   sleep_ms(250);
   display.setOrientation(0);
+  
+  uint32_t display_update_time = 0;
+  uint32_t input_update_time = 0;
 
   while (true)
   {
@@ -143,23 +147,23 @@ void poll_inputs()
       adc_average += adc_samples[i];
     }
     adc_average /= MAX_ADC_SAMPLES;
-    current_bpm = map(adc_average >> 4, 0, 256-2, 30, 180);
+    program_state.current_bpm = map(adc_average >> 4, 0, 256-2, 30, 180);
   }
 
-  arpeggiator_active = gpio_get(ARPEGGIATOR_PIN);
+  program_state.arpeggiator_active = gpio_get(ARPEGGIATOR_PIN);
 }
 
 void update_display(pico_ssd1306::SSD1306 &display)
 {
   display.clear();
   
-  if (arpeggiator_active)
+  if (program_state.arpeggiator_active)
   {
     drawChar(&display, font_12x16, 'A', 0, 64-16);
   }
 
   char bpm_string[1];
-  sprintf(bpm_string, "%03d", current_bpm);
+  sprintf(bpm_string, "%03d", program_state.current_bpm);
   drawText(&display, font_16x32, bpm_string, 40, 20);
 
   display.sendBuffer();
@@ -167,19 +171,19 @@ void update_display(pico_ssd1306::SSD1306 &display)
 
 void update_outputs()
 {
-  if(current_note > 0)
+  if(program_state.current_note > 0)
   {
     gpio_put(GATE_PIN, true);
-    pwm_set_chan_level(note_pwm.slice_num, note_pwm.channel, current_note);
-    pwm_set_chan_level(velocity_pwm.slice_num, velocity_pwm.channel, current_velocity);
+    pwm_set_chan_level(note_pwm.slice_num, note_pwm.channel, program_state.current_note);
+    pwm_set_chan_level(velocity_pwm.slice_num, velocity_pwm.channel, program_state.current_velocity);
   } 
-  else if (!sustain_active) 
+  else if (!program_state.sustain_active) 
   {
     gpio_put(GATE_PIN, false);
     pwm_set_chan_level(note_pwm.slice_num, note_pwm.channel, 0);
     pwm_set_chan_level(velocity_pwm.slice_num, velocity_pwm.channel, 0);
   }
-  pwm_set_chan_level(modulation_pwm.slice_num, modulation_pwm.channel, modulation_level);
+  pwm_set_chan_level(modulation_pwm.slice_num, modulation_pwm.channel, program_state.modulation_level);
 }
 
 //--------------------------------------------------------------------+
@@ -228,13 +232,13 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
         switch (buffer[0])
         {
         case 0x90: // note on (note number, velocity)
-          current_note = buffer[1];
-          current_velocity = buffer[2];
+          program_state.current_note = buffer[1];
+          program_state.current_velocity = buffer[2];
           break;
         case 0x80: // note off (note number, velocity)
-          if (buffer[1] == current_note)
+          if (buffer[1] == program_state.current_note)
           {
-            current_note = 0;
+            program_state.current_note = 0;
           }
           break;
         case 0xE0: // pitch wheel (LSB, MSB)
@@ -243,16 +247,16 @@ void tuh_midi_rx_cb(uint8_t dev_addr, uint32_t num_packets)
           switch (buffer[1])
           {
           case 0x01: // modwheel MSB
-            modulation_level = buffer[2];
+            program_state.modulation_level = buffer[2];
             break;
           case 0x07: // volume slider
             break;
           case 0x40: // sustain pedal
-            sustain_active = buffer[2] < 0x3F ? false : true;
+            program_state.sustain_active = buffer[2] < 0x3F ? false : true;
             break;
           case 0x7B: // all notes off
-            sustain_active = false;
-            current_note = 0;
+            program_state.sustain_active = false;
+            program_state.current_note = 0;
             break;
           default:
             break;
