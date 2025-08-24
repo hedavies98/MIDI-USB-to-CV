@@ -26,6 +26,7 @@ const float CKL_DIV = 30.0f;
 const uint8_t BPM_PIN = 28;
 const uint8_t GATE_PIN = 22;
 const uint8_t TRIGGER_PIN = 21;
+const uint8_t ARPEGGIATOR_PIN = 6;
 
 PWMConfig note_pwm = {27, 0, 0};
 PWMConfig velocity_pwm = {26, 0, 0};
@@ -40,6 +41,7 @@ uint8_t modulation_level = 0;
 uint16_t current_bpm = 0;
 uint16_t last_raw_value = 0;
 bool sustain_active = false;
+bool arpeggiator_active = false;
 
 // Function prototypes
 void init_pwm(PWMConfig &pwm_config);
@@ -82,6 +84,9 @@ void init_pins()
   gpio_set_dir(GATE_PIN, GPIO_OUT);
   gpio_init(TRIGGER_PIN);
   gpio_set_dir(TRIGGER_PIN, GPIO_OUT);
+
+  gpio_init(ARPEGGIATOR_PIN);
+  gpio_set_dir(ARPEGGIATOR_PIN, GPIO_IN);
 
   adc_gpio_init(BPM_PIN);
   adc_select_input(BPM_PIN - ADC_BASE_PIN);
@@ -128,39 +133,27 @@ void poll_inputs()
     last_raw_value = result;
     current_bpm = map(result, 0, 1019, 30, 180);
   }
+  arpeggiator_active = gpio_get(ARPEGGIATOR_PIN);
 }
 
 void update_display(pico_ssd1306::SSD1306 &display)
 {
   display.clear();
-  // drawText(&display, font_12x16, "Note", 0 ,0);
-  // char note_string[10];
-  // sprintf(note_string, "%03d", current_note);
-  // drawText(&display, font_12x16, note_string, 50, 0);
+  drawText(&display, font_12x16, "Note", 0 ,0);
+  char note_string[10];
+  sprintf(note_string, "%03d", current_note);
+  drawText(&display, font_12x16, note_string, 50, 0);
 
-  // drawText(&display, font_12x16, "Vel", 0, 20);
-  // char velocity_string[10];
-  // sprintf(velocity_string, "%03d", current_velocity);
-  // drawText(&display, font_12x16, velocity_string, 50, 20);
-
-  // if (sustain_active)
-  // {
-  //   drawText(&display, font_12x16, "S:ON", 0, 40);
-  // } else {
-  //   drawText(&display, font_12x16, "S:OFF", 0, 40);
-  // }
-
-  char a_string[10];
-  sprintf(a_string, "%05d", last_raw_value);
-  drawText(&display, font_12x16, a_string, 0, 0);
-  
-  // char bpm_string[10];
-  // sprintf(bpm_string, "%04d", current_bpm);
-  // drawText(&display, font_12x16, bpm_string, 0, 20);
+  if (arpeggiator_active)
+  {
+    drawText(&display, font_12x16, "A:ON", 0, 40);
+  } else {
+    drawText(&display, font_12x16, "A:OFF", 0, 40);
+  }
 
   char bpm_string[10];
   sprintf(bpm_string, "%04d", current_bpm);
-  drawText(&display, font_12x16, bpm_string, 0, 40);
+  drawText(&display, font_12x16, bpm_string, 0, 20);
 
   display.sendBuffer();
 
